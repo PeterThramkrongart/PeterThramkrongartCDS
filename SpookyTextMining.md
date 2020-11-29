@@ -4,7 +4,8 @@ Gutenberg
 Peter Thramkrongart
 
 ``` r
-knitr::opts_chunk$set(echo = TRUE)
+#Loading packages
+
 pacman::p_load(
   tidyverse,
   tm,
@@ -15,7 +16,6 @@ pacman::p_load(
   servr,
   NLP,
   gutenbergr,
-  forcats,
   text2vec,
   textstem,
   openNLP,
@@ -28,6 +28,7 @@ library(openNLPmodels.en)
 ```
 
 ``` r
+#making a lists of the horror titles that we are going to use
 IDs <-
   gutenberg_metadata %>%
   filter(str_detect(gutenberg_bookshelf, "Horror") == T &
@@ -48,6 +49,8 @@ IDs %>% head()
     ## # ... with 1 more variable: has_text <lgl>
 
 ``` r
+#Downloading the data
+
 texts <- gutenberg_download(IDs$gutenberg_id, meta_fields = c("title", "author"))
 ```
 
@@ -56,16 +59,39 @@ texts <- gutenberg_download(IDs$gutenberg_id, meta_fields = c("title", "author")
     ## Using mirror http://aleph.gutenberg.org
 
 ``` r
+#collapsing data into single texts
+
 texts <- texts %>% group_by(title) %>% mutate(text = glue::glue_collapse(text, " ")) %>% unique()
 
 
 texts %>% write_csv("texts.csv")
+
+texts %>% head()
 ```
 
+    ## # A tibble: 6 x 4
+    ## # Groups:   title [6]
+    ##   gutenberg_id text                             title               author      
+    ##          <int> <glue>                           <chr>               <chr>       
+    ## 1           42 "                              ~ The Strange Case o~ Stevenson, ~
+    ## 2          209 "THE TURN OF THE SCREW  by Henr~ The Turn of the Sc~ James, Henry
+    ## 3          345 "                              ~ Dracula             Stoker, Bram
+    ## 4          375 "AN OCCURRENCE AT OWL CREEK BRI~ An Occurrence at O~ Bierce, Amb~
+    ## 5          389 "THE GREAT GOD PAN  by  ARTHUR ~ The Great God Pan   Machen, Art~
+    ## 6         1188 "Transcribed form the 1911 W. F~ The Lair of the Wh~ Stoker, Bram
+
 ``` r
+#removing unnecessary characters and 
+
 texts$text <- texts$text %>% str_replace_all("[^[:alnum:][:space:]'\\.,]", "")
 
+#This next part takes over an hour to run, so be careful...
+
+#making dictionary for lemmatization. Here I use the "lexicon" method. It is better to use the treetagger method, but that requeires a Perl installation, and is difficult to install in itself as well.
+
 # lemma_dictionary <- texts$text %>%  make_lemma_dictionary( engine = 'lexicon')
+#
+##Lemmatizing texts
 #
 # texts$text <- texts$text %>% lemmatize_strings(dictionary = lemma_dictionary)
 #
@@ -98,6 +124,8 @@ texts %>% head()
     ## 6         1188 transcribe form the 1911 W. Fou~ The Lair of the Wh~ Stoker, Bram
 
 ``` r
+#defining a generic function for creating and fitting LDA models
+
 custom_LDA_func <- function(df, n) {
   tokens = df$text %>% word_tokenizer()
   it = itoken(tokens, ids = df$title, progressbar = T)
@@ -125,16 +153,21 @@ custom_LDA_func <- function(df, n) {
   return(lda_model)
 }
 
+
+#fitting model on lemmatized texts
 lemmatized_LDA <- custom_LDA_func(texts, 6)
 ```
 
-    ##   |                                                                              |                                                                      |   0%  |                                                                              |                                                                      |   1%  |                                                                              |=                                                                     |   1%  |                                                                              |=                                                                     |   2%  |                                                                              |==                                                                    |   2%  |                                                                              |==                                                                    |   3%  |                                                                              |==                                                                    |   4%  |                                                                              |===                                                                   |   4%  |                                                                              |===                                                                   |   5%  |                                                                              |====                                                                  |   5%  |                                                                              |====                                                                  |   6%  |                                                                              |=====                                                                 |   6%  |                                                                              |=====                                                                 |   7%  |                                                                              |======================================================================| 100%INFO  [23:11:46.841] early stopping at 75 iteration 
+    ##   |                                                                              |                                                                      |   0%  |                                                                              |                                                                      |   1%  |                                                                              |=                                                                     |   1%  |                                                                              |=                                                                     |   2%  |                                                                              |==                                                                    |   2%  |                                                                              |==                                                                    |   3%  |                                                                              |==                                                                    |   4%  |                                                                              |===                                                                   |   4%  |                                                                              |===                                                                   |   5%  |                                                                              |======================================================================| 100%INFO  [11:35:30.799] early stopping at 50 iteration 
     ## 
-    ##   |                                                                              |                                                                      |   0%  |                                                                              |                                                                      |   1%  |                                                                              |=                                                                     |   1%  |                                                                              |=                                                                     |   2%  |                                                                              |==                                                                    |   2%  |                                                                              |==                                                                    |   3%  |                                                                              |==                                                                    |   4%  |                                                                              |===                                                                   |   4%  |                                                                              |===                                                                   |   5%  |                                                                              |======================================================================| 100%INFO  [23:11:52.214] early stopping at 50 iteration
+    ##   |                                                                              |                                                                      |   0%  |                                                                              |                                                                      |   1%  |                                                                              |=                                                                     |   1%  |                                                                              |=                                                                     |   2%  |                                                                              |==                                                                    |   2%  |                                                                              |==                                                                    |   3%  |                                                                              |==                                                                    |   4%  |                                                                              |===                                                                   |   4%  |                                                                              |===                                                                   |   5%  |                                                                              |======================================================================| 100%INFO  [11:35:35.105] early stopping at 50 iteration
 
 ``` r
+#this part is not visible in the knitted document. It starts a server that hosts the visualization.
 lemmatized_LDA$plot()
 
+
+#function for splitting large texts into equal parts
 
 equal_parts <- function(x, np = 5) {
   n <- cut(seq_along(x), np)
@@ -142,9 +175,11 @@ equal_parts <- function(x, np = 5) {
   cumsum(c(1, diff(n) > 0))
 }
 
+#separating texts in smaller parts
+
 texts <- separate_rows(texts, text) %>%
   group_by(title) %>%
-  mutate(grp = equal_parts(text)) %>%     # using the 'equal_parts'-function from the base R solution
+  mutate(grp = equal_parts(text)) %>%  
   group_by(grp, add = TRUE) %>%
   mutate(title = paste(title, grp, sep = "_")) %>%
   summarise(text = paste0(text, collapse = ' '))
@@ -173,36 +208,58 @@ texts %>% head()
     ## 6 An Occurrence at Owl C~     1 a OCCURRENCE AT OWL CREEK BRIDGE by Ambrose Bie~
 
 ``` r
+#difining pipeline for POS tagging
+
 sent_token_annotator <- Maxent_Sent_Token_Annotator()
 word_token_annotator <- Maxent_Word_Token_Annotator()
 pos_tag_annotator <- Maxent_POS_Tag_Annotator()
 
+#creating the df before the loop
 documents_df <- NULL
+
+#defining the chunk size to lessen load on the ram
 chunk_size <- 250
 
+
+#this loop is quite a mouthful. It takes 3088.11 seconds to run on my computer
+
 # for (i in seq_along(texts$title)) {
-#   para_text <- texts$text[i]
+#
+#   para_text <- texts$text[i] #grapping text
 #   
-#   text_s <- as.String(para_text)
+#   text_s <- as.String(para_text) # tunring into the right string format
+
+#   #start annotating string
 #   annotated_string <- annotate(text_s,
 #                                list(
 #                                  sent_token_annotator,
 #                                  word_token_annotator,
 #                                  pos_tag_annotator
-#                                ))
-#   word_pos <- subset(annotated_string, type == "word")
-#   tags_v <- sapply(word_pos$features, `[[`, "POS")
-#   words_v <- text_s[word_pos]
+#                                )) 
+#   
+#
+#   word_pos <- subset(annotated_string, type == "word") #grapping position of words
+#
+#   tags_v <- sapply(word_pos$features, `[[`, "POS") #grapping pos tags
+#
+#   words_v <- text_s[word_pos] #grapping pos tags
+#
 #   word_pos_df <- data.frame(Token = words_v,
 #                             POS = tags_v,
-#                             stringsAsFactors = FALSE)
-#   nouns_df <-
+#                             stringsAsFactors = FALSE) #assembling in dataframe
+#
+#   filtered_lemmas_df <-
+#     #we are only interested in nouns verbs and adjectives
 #     filter(word_pos_df,
-#            POS == "NN" | str_detect(POS, "VB") | str_detect(POS, "JJ")) %>%
+#            POS == "NN" | str_detect(POS, "VB") | str_detect(POS, "JJ")) %>% 
 #     select(Token) %>%
 #     mutate(Token = tolower(Token))
-#   word_v <- nouns_df$Token
+#
+#   #This whole ting is about chunking into even smaller parts
+#   word_v <- filtered_lemmas_df$Token
+#
 #   x <- seq_along(word_v)
+#
 #   chunks_l <- split(word_v, ceiling(x / chunk_size))
 #   if (length(chunks_l[[length(chunks_l)]]) <= chunk_size / 2) {
 #     chunks_l[[length(chunks_l) - 1]] <- c(chunks_l[[length(chunks_l) - 1]],
@@ -217,21 +274,27 @@ chunk_size <- 250
 #   file_df <- data.frame(id = chunk_names_v,
 #                         text = chunks_df,
 #                         stringsAsFactors = FALSE)
-#   documents_df <- rbind(documents_df, file_df)
-#   cat("Done with", texts$title[i], "\r")
+#
+#   documents_df <- rbind(documents_df, file_df) adding to the dataframe
+#   cat("Done with", texts$title[i], "\r")#status text
 # }
 toc()
 ```
 
-    ## 60.84 sec elapsed
+    ## 67.2 sec elapsed
 
 ``` r
 #3088.11 sec elapsed
 
+
+##removing the chunk tags and saving data
 # documents_df <-
 #   documents_df %>% mutate(title = id %>% str_replace_all("_\\d+", ""))
 # 
 # documents_df %>% write_csv("cleaned_texts.csv")
+
+
+#running LDA
 
 lemmatized_pos_texts <- read_csv("cleaned_texts.csv")
 ```
@@ -247,11 +310,15 @@ lemmatized_pos_texts <- read_csv("cleaned_texts.csv")
 lemmatized_pos_LDA <- lemmatized_pos_texts %>% custom_LDA_func(20)
 ```
 
-    ##   |                                                                              |                                                                      |   0%  |                                                                              |                                                                      |   1%  |                                                                              |=                                                                     |   1%  |                                                                              |=                                                                     |   2%  |                                                                              |==                                                                    |   2%  |                                                                              |==                                                                    |   3%  |                                                                              |==                                                                    |   4%  |                                                                              |===                                                                   |   4%  |                                                                              |===                                                                   |   5%  |                                                                              |====                                                                  |   5%  |                                                                              |====                                                                  |   6%  |                                                                              |=====                                                                 |   6%  |                                                                              |=====                                                                 |   7%  |                                                                              |=====                                                                 |   8%  |                                                                              |======                                                                |   8%  |                                                                              |======                                                                |   9%  |                                                                              |=======                                                               |   9%  |                                                                              |=======                                                               |  10%  |                                                                              |=======                                                               |  11%  |                                                                              |========                                                              |  11%  |                                                                              |========                                                              |  12%  |                                                                              |=========                                                             |  12%  |                                                                              |=========                                                             |  13%  |                                                                              |=========                                                             |  14%  |                                                                              |==========                                                            |  14%  |                                                                              |==========                                                            |  15%  |                                                                              |===========                                                           |  15%  |                                                                              |===========                                                           |  16%  |                                                                              |============                                                          |  16%  |                                                                              |============                                                          |  17%  |                                                                              |============                                                          |  18%  |                                                                              |=============                                                         |  18%  |                                                                              |=============                                                         |  19%  |                                                                              |==============                                                        |  19%  |                                                                              |==============                                                        |  20%  |                                                                              |==============                                                        |  21%  |                                                                              |===============                                                       |  21%  |                                                                              |===============                                                       |  22%  |                                                                              |================                                                      |  22%  |                                                                              |======================================================================| 100%INFO  [23:13:44.591] early stopping at 225 iteration 
+    ##   |                                                                              |                                                                      |   0%  |                                                                              |                                                                      |   1%  |                                                                              |=                                                                     |   1%  |                                                                              |=                                                                     |   2%  |                                                                              |==                                                                    |   2%  |                                                                              |==                                                                    |   3%  |                                                                              |==                                                                    |   4%  |                                                                              |===                                                                   |   4%  |                                                                              |===                                                                   |   5%  |                                                                              |====                                                                  |   5%  |                                                                              |====                                                                  |   6%  |                                                                              |=====                                                                 |   6%  |                                                                              |=====                                                                 |   7%  |                                                                              |=====                                                                 |   8%  |                                                                              |======                                                                |   8%  |                                                                              |======                                                                |   9%  |                                                                              |=======                                                               |   9%  |                                                                              |=======                                                               |  10%  |                                                                              |=======                                                               |  11%  |                                                                              |========                                                              |  11%  |                                                                              |========                                                              |  12%  |                                                                              |=========                                                             |  12%  |                                                                              |=========                                                             |  13%  |                                                                              |=========                                                             |  14%  |                                                                              |==========                                                            |  14%  |                                                                              |==========                                                            |  15%  |                                                                              |===========                                                           |  15%  |                                                                              |===========                                                           |  16%  |                                                                              |============                                                          |  16%  |                                                                              |============                                                          |  17%  |                                                                              |============                                                          |  18%  |                                                                              |=============                                                         |  18%  |                                                                              |=============                                                         |  19%  |                                                                              |==============                                                        |  19%  |                                                                              |==============                                                        |  20%  |                                                                              |==============                                                        |  21%  |                                                                              |===============                                                       |  21%  |                                                                              |===============                                                       |  22%  |                                                                              |================                                                      |  22%  |                                                                              |================                                                      |  23%  |                                                                              |================                                                      |  24%  |                                                                              |=================                                                     |  24%  |                                                                              |=================                                                     |  25%  |                                                                              |======================================================================| 100%INFO  [11:37:54.853] early stopping at 250 iteration 
     ## 
-    ##   |                                                                              |                                                                      |   0%  |                                                                              |                                                                      |   1%  |                                                                              |=                                                                     |   1%  |                                                                              |=                                                                     |   2%  |                                                                              |==                                                                    |   2%  |                                                                              |==                                                                    |   3%  |                                                                              |==                                                                    |   4%  |                                                                              |===                                                                   |   4%  |                                                                              |===                                                                   |   5%  |                                                                              |======================================================================| 100%INFO  [23:13:53.051] early stopping at 50 iteration
+    ##   |                                                                              |                                                                      |   0%  |                                                                              |                                                                      |   1%  |                                                                              |=                                                                     |   1%  |                                                                              |=                                                                     |   2%  |                                                                              |==                                                                    |   2%  |                                                                              |==                                                                    |   3%  |                                                                              |==                                                                    |   4%  |                                                                              |===                                                                   |   4%  |                                                                              |===                                                                   |   5%  |                                                                              |======================================================================| 100%INFO  [11:38:12.247] early stopping at 50 iteration
 
 ``` r
+lemmatized_pos_LDA$plot()
+
+
+#session info
 sessioninfo::session_info()
 ```
 
@@ -265,7 +332,7 @@ sessioninfo::session_info()
     ##  collate  Danish_Denmark.1252         
     ##  ctype    Danish_Denmark.1252         
     ##  tz       Europe/Paris                
-    ##  date     2020-11-28                  
+    ##  date     2020-11-29                  
     ## 
     ## - Packages -------------------------------------------------------------------
     ##  ! package          * version  date       lib source        

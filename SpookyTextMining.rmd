@@ -1,0 +1,244 @@
+---
+title: "Preprocessing and topic-modeling horror literature from Project Gutenberg"
+author: "Peter Thramkrongart"
+output: github_document
+---
+
+```{r setup}
+#Loading packages
+
+pacman::p_load(
+  tidyverse,
+  tm,
+  tidytext,
+  topicmodels,
+  reshape2,
+  LDAvis,
+  servr,
+  NLP,
+  gutenbergr,
+  text2vec,
+  textstem,
+  openNLP,
+  tictoc
+)
+
+
+#install.packages("openNLPmodels.en", dependencies=TRUE, repos = "http://datacube.wu.ac.at/")
+library(openNLPmodels.en)
+```
+
+
+```{r}
+#making a lists of the horror titles that we are going to use
+IDs <-
+  gutenberg_metadata %>%
+  filter(str_detect(gutenberg_bookshelf, "Horror") == T &
+           language == "en") %>% distinct(title, .keep_all = T)
+
+IDs %>% head()
+
+
+```
+
+```{r}
+
+#Downloading the data
+
+texts <- gutenberg_download(IDs$gutenberg_id, meta_fields = c("title", "author"))
+
+#collapsing data into single texts
+
+texts <- texts %>% group_by(title) %>% mutate(text = glue::glue_collapse(text, " ")) %>% unique()
+
+
+texts %>% write_csv("texts.csv")
+
+texts %>% head()
+
+```
+
+```{r}
+
+#removing unnecessary characters and 
+
+texts$text <- texts$text %>% str_replace_all("[^[:alnum:][:space:]'\\.,]", "")
+
+#This next part takes over an hour to run, so be careful...
+
+#making dictionary for lemmatization. Here I use the "lexicon" method. It is better to use the treetagger method, but that requeires a Perl installation, and is difficult to install in itself as well.
+
+# lemma_dictionary <- texts$text %>%  make_lemma_dictionary( engine = 'lexicon')
+#
+##Lemmatizing texts
+#
+# texts$text <- texts$text %>% lemmatize_strings(dictionary = lemma_dictionary)
+#
+# texts %>% write_csv("lemmatized_texts.csv")
+tic()
+
+texts <- read_csv("lemmatized_texts.csv")
+
+texts %>% head()
+
+```
+
+
+```{r}
+
+#defining a generic function for creating and fitting LDA models
+
+custom_LDA_func <- function(df, n) {
+  tokens = df$text %>% word_tokenizer()
+  it = itoken(tokens, ids = df$title, progressbar = T)
+  v = create_vocabulary(it, stopwords = stopwords::stopwords())
+  v = prune_vocabulary(v,
+                       term_count_min = 5,
+                       doc_proportion_max = 0.2)
+  
+  vectorizer = vocab_vectorizer(v)
+  dtm = create_dtm(it, vectorizer, type = "dgTMatrix")
+  
+  lda_model = LDA$new(
+    n_topics = n,
+    doc_topic_prior = 0.1,
+    topic_word_prior = 0.01
+  )
+  doc_topic_distr =
+    lda_model$fit_transform(
+      x = dtm,
+      n_iter = 1000,
+      convergence_tol = 0.001,
+      n_check_convergence = 25,
+      progressbar = T
+    )
+  return(lda_model)
+}
+
+
+#fitting model on lemmatized texts
+lemmatized_LDA <- custom_LDA_func(texts, 6)
+
+
+#this part is not visible in the knitted document. It starts a server that hosts the visualization.
+lemmatized_LDA$plot()
+
+
+#function for splitting large texts into equal parts
+
+equal_parts <- function(x, np = 5) {
+  n <- cut(seq_along(x), np)
+  n <- as.integer(n)
+  cumsum(c(1, diff(n) > 0))
+}
+
+#separating texts in smaller parts
+
+texts <- separate_rows(texts, text) %>%
+  group_by(title) %>%
+  mutate(grp = equal_parts(text)) %>%  
+  group_by(grp, add = TRUE) %>%
+  mutate(title = paste(title, grp, sep = "_")) %>%
+  summarise(text = paste0(text, collapse = ' '))
+
+texts %>% head()
+
+```
+
+```{r}
+
+#difining pipeline for POS tagging
+
+sent_token_annotator <- Maxent_Sent_Token_Annotator()
+word_token_annotator <- Maxent_Word_Token_Annotator()
+pos_tag_annotator <- Maxent_POS_Tag_Annotator()
+
+#creating the df before the loop
+documents_df <- NULL
+
+#defining the chunk size to lessen load on the ram
+chunk_size <- 250
+
+
+#this loop is quite a mouthful. It takes 3088.11 seconds to run on my computer
+
+# for (i in seq_along(texts$title)) {
+#
+#   para_text <- texts$text[i] #grapping text
+#   
+#   text_s <- as.String(para_text) # tunring into the right string format
+
+#   #start annotating string
+#   annotated_string <- annotate(text_s,
+#                                list(
+#                                  sent_token_annotator,
+#                                  word_token_annotator,
+#                                  pos_tag_annotator
+#                                )) 
+#   
+#
+#   word_pos <- subset(annotated_string, type == "word") #grapping position of words
+#
+#   tags_v <- sapply(word_pos$features, `[[`, "POS") #grapping pos tags
+#
+#   words_v <- text_s[word_pos] #grapping pos tags
+#
+#   word_pos_df <- data.frame(Token = words_v,
+#                             POS = tags_v,
+#                             stringsAsFactors = FALSE) #assembling in dataframe
+#
+#   filtered_lemmas_df <-
+#     #we are only interested in nouns verbs and adjectives
+#     filter(word_pos_df,
+#            POS == "NN" | str_detect(POS, "VB") | str_detect(POS, "JJ")) %>% 
+#     select(Token) %>%
+#     mutate(Token = tolower(Token))
+#
+#   #This whole ting is about chunking into even smaller parts
+#   word_v <- filtered_lemmas_df$Token
+#
+#   x <- seq_along(word_v)
+#
+#   chunks_l <- split(word_v, ceiling(x / chunk_size))
+#   if (length(chunks_l[[length(chunks_l)]]) <= chunk_size / 2) {
+#     chunks_l[[length(chunks_l) - 1]] <- c(chunks_l[[length(chunks_l) - 1]],
+#                                           chunks_l[[length(chunks_l)]])
+#     chunks_l[[length(chunks_l)]] <- NULL
+#   }
+#   chunk_strings_l <- lapply(chunks_l, paste, collapse = " ")
+#   chunks_df <- do.call(rbind, chunk_strings_l)
+#   textname_v <- gsub("\\..*", "", texts$title[i])
+#   chunk_ids_v <- 1:nrow(chunks_df)
+#   chunk_names_v <- paste(textname_v, chunk_ids_v, sep = "_")
+#   file_df <- data.frame(id = chunk_names_v,
+#                         text = chunks_df,
+#                         stringsAsFactors = FALSE)
+#
+#   documents_df <- rbind(documents_df, file_df) adding to the dataframe
+#   cat("Done with", texts$title[i], "\r")#status text
+# }
+toc()
+#3088.11 sec elapsed
+
+
+##removing the chunk tags and saving data
+# documents_df <-
+#   documents_df %>% mutate(title = id %>% str_replace_all("_\\d+", ""))
+# 
+# documents_df %>% write_csv("cleaned_texts.csv")
+
+
+#running LDA
+
+lemmatized_pos_texts <- read_csv("cleaned_texts.csv")
+
+lemmatized_pos_LDA <- lemmatized_pos_texts %>% custom_LDA_func(20)
+
+lemmatized_pos_LDA$plot()
+
+
+#session info
+sessioninfo::session_info()
+
+
+```
