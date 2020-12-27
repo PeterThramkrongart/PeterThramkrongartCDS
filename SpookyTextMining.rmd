@@ -20,12 +20,18 @@ pacman::p_load(
   text2vec,
   textstem,
   openNLP,
-  tictoc
+  tictoc, 
+  spacyr,
+  tokenizers,
+  openNLPmodels.en,
+  udpipe
 )
 
 
+
 #install.packages("openNLPmodels.en", dependencies=TRUE, repos = "http://datacube.wu.ac.at/")
-library(openNLPmodels.en)
+
+#spacy_install()
 ```
 
 
@@ -36,8 +42,7 @@ IDs <-
   filter(str_detect(gutenberg_bookshelf, "Horror") == T &
            language == "en") %>% distinct(title, .keep_all = T)
 
-IDs %>% head()
-
+IDs %>% glimpse()
 
 ```
 
@@ -54,34 +59,38 @@ texts <- texts %>% group_by(title) %>% mutate(text = glue::glue_collapse(text, "
 
 texts %>% write_csv("texts.csv")
 
-texts %>% head()
+texts <- read_csv("texts.csv")
+texts %>% glimpse()
 
-```
 
-```{r}
 
 #removing unnecessary characters and 
 
-texts$text <- texts$text %>% str_replace_all("[^[:alnum:][:space:]'\\.,]", "")
+texts$text <-
+  texts$text %>% str_replace_all("[^[:alnum:][:space:]'\\.,]", "")
 
-#This next part takes over an hour to run, so be careful...
-
-#making dictionary for lemmatization. Here I use the "lexicon" method. It is better to use the treetagger method, but that requeires a Perl installation, and is difficult to install in itself as well.
-
-# lemma_dictionary <- texts$text %>%  make_lemma_dictionary( engine = 'lexicon')
-#
-##Lemmatizing texts
-#
-# texts$text <- texts$text %>% lemmatize_strings(dictionary = lemma_dictionary)
-#
-# texts %>% write_csv("lemmatized_texts.csv")
 tic()
+chunks <-
+  chunk_text(
+    texts$text,
+    chunk_size = 100,
+    doc_id = texts$title,
+    lowercase = F,
+    strip_punct = F
+  )
+toc()#32.97 sec elapsed
 
-texts <- read_csv("lemmatized_texts.csv")
+text_tibble <-
+  tibble(
+    "title" = names(chunks) %>% str_replace_all("-\\d+", ""),
+    "titleChunked" = names(chunks),
+    "text" = chunks
+  )
 
-texts %>% head()
 
 ```
+
+
 
 
 ```{r}
@@ -115,33 +124,104 @@ custom_LDA_func <- function(df, n) {
   return(lda_model)
 }
 
+```
+
+```{r}
+
+raw_LDA <- custom_LDA_func(texts, 6)
+
+raw_LDA %>% write_rds("rawLDA.rds")
+
+raw_LDA <- read_rds("rawLDA.rds")
+
+raw_LDA$plot()
+
+
+chunked_LDA <- custom_LDA_func(text_tibble, 20)
+
+chunked_LDA %>% write_rds("chunkedLDA.rds")
+
+chunked_LDA <- read_rds("chunkedLDA.rds")
+
+chunked_LDA$plot()
+
+
+
+tic()
+lemmatized_tibble <- text_tibble %>% mutate(text = text %>% lemmatize_strings())
+toc()#897.18 sec elapsed
+
+lemmatized_tibble$text <- lemmatized_tibble$text %>% tolower()
+
+lemmatized_tibble %>% write_csv("lemmatized_tibble.csv")
+
+lemmatized_tibble <- read_csv("lemmatized_tibble.csv")
+
+lemmatized_tibble %>% glimpse()
 
 #fitting model on lemmatized texts
-lemmatized_LDA <- custom_LDA_func(texts, 6)
+lemmatized_LDA <- custom_LDA_func(lemmatized_tibble, 6)
 
+lemmatized_LDA %>% write_rds("lemmatizedLDA.rds")
 
+lemmatized_LDA <- read_rds("lemmatizedLDA.rds")
 #this part is not visible in the knitted document. It starts a server that hosts the visualization.
 lemmatized_LDA$plot()
 
+```
 
-#function for splitting large texts into equal parts
 
-equal_parts <- function(x, np = 5) {
-  n <- cut(seq_along(x), np)
-  n <- as.integer(n)
-  cumsum(c(1, diff(n) > 0))
-}
+```{r}
+spacy_initialize()
 
-#separating texts in smaller parts
+spacy_initialize(condaenv = "C:/Users/thram_000/anaconda3/envs/spacy_condaenv",save_profile = TRUE)
 
-texts <- separate_rows(texts, text) %>%
-  group_by(title) %>%
-  mutate(grp = equal_parts(text)) %>%  
-  group_by(grp, add = TRUE) %>%
-  mutate(title = paste(title, grp, sep = "_")) %>%
-  summarise(text = paste0(text, collapse = ' '))
+spacey_test<- spacy_parse(unlist(chunks[1:2]))
 
-texts %>% head()
+spacey_test %>% glimpse()
+
+
+tic()
+
+spacy_lemmas <- spacy_parse(unlist(chunks))
+
+toc()#1778.81 sec elapsed
+
+
+spacy_lemmas %>% write_csv("spacy_lemmas.csv")
+
+
+spacy_lemmas <- read_csv("spacy_lemmas.csv")
+
+tic()
+spacy_texts <- spacy_lemmas %>% filter(pos == "ADJ" |
+                                    pos == "ADV" |
+                                    pos == "NOUN" |
+                                    pos == "VERB") %>%
+  mutate(title = doc_id %>% str_replace_all("-\\d+", ""),
+         titleChunked = doc_id) %>% select(c("lemma", "title", "titleChunked")) %>%
+  group_by(titleChunked) %>%
+  mutate(lemma = glue::glue_collapse(lemma, " ")) %>%
+  unique() %>%
+  rename(text = lemma)
+toc()#775.12 sec elapsed
+
+
+spacy_texts %>% write_csv("spacy_texts.csv")
+
+spacy_texts <- read.csv("spacy_texts.csv")
+
+spacy_texts %>% glimpse()
+
+
+
+spacy_LDA <- spacy_texts %>% custom_LDA_func(20)
+
+spacy_LDA %>% saveRDS("spacyLDA.rds")
+
+spacy_LDA$plot()
+
+
 
 ```
 
@@ -153,92 +233,82 @@ sent_token_annotator <- Maxent_Sent_Token_Annotator()
 word_token_annotator <- Maxent_Word_Token_Annotator()
 pos_tag_annotator <- Maxent_POS_Tag_Annotator()
 
-#creating the df before the loop
-documents_df <- NULL
 
-#defining the chunk size to lessen load on the ram
-chunk_size <- 250
+tic()
+openNLP_texts <- NULL
 
+for (i in seq_along(text_tibble$titleChunked)) {
 
-#this loop is quite a mouthful. It takes 3088.11 seconds to run on my computer
+  para_text <- text_tibble$text[i] #grapping text
+  
+  text_s <- as.String(para_text) # tunring into the right string format
+  
+  #start annotating string
+  annotated_string <- annotate(text_s,
+                               list(
+                                 sent_token_annotator,
+                                 word_token_annotator,
+                                 pos_tag_annotator
+                               ))
+  
+  
+  word_pos <- subset(annotated_string, type == "word") #grapping position of words
+  
+  tags_v <- sapply(word_pos$features, `[[`, "POS") #grapping pos tags
+  
+  words_v <- text_s[word_pos] #grapping pos tags
+  
+  word_pos_df <- data.frame(Token = words_v,
+                            POS = tags_v,
+                            stringsAsFactors = FALSE) #assembling in dataframe
+  
+  filtered_df <-
+    #we are only interested in nouns verbs and adjectives
+    filter(word_pos_df,
+           POS == "NN"| POS == "NNS" | str_detect(POS, "VB") | str_detect(POS, "JJ")| str_detect(POS, "RB")) %>%
+    select(Token) %>%
+    mutate(Token = tolower(Token))
+  
+  text_v = paste(filtered_df$Token, collapse = " ")
+    
+  df = tibble(title = text_tibble$title[i],
+    titleChunked = text_tibble$titleChunked[i],
+              text = text_v)
+    openNLP_texts <- rbind(openNLP_texts, df) #adding to the dataframe
 
-# for (i in seq_along(texts$title)) {
-#
-#   para_text <- texts$text[i] #grapping text
-#   
-#   text_s <- as.String(para_text) # tunring into the right string format
-
-#   #start annotating string
-#   annotated_string <- annotate(text_s,
-#                                list(
-#                                  sent_token_annotator,
-#                                  word_token_annotator,
-#                                  pos_tag_annotator
-#                                )) 
-#   
-#
-#   word_pos <- subset(annotated_string, type == "word") #grapping position of words
-#
-#   tags_v <- sapply(word_pos$features, `[[`, "POS") #grapping pos tags
-#
-#   words_v <- text_s[word_pos] #grapping pos tags
-#
-#   word_pos_df <- data.frame(Token = words_v,
-#                             POS = tags_v,
-#                             stringsAsFactors = FALSE) #assembling in dataframe
-#
-#   filtered_lemmas_df <-
-#     #we are only interested in nouns verbs and adjectives
-#     filter(word_pos_df,
-#            POS == "NN" | str_detect(POS, "VB") | str_detect(POS, "JJ")) %>% 
-#     select(Token) %>%
-#     mutate(Token = tolower(Token))
-#
-#   #This whole ting is about chunking into even smaller parts
-#   word_v <- filtered_lemmas_df$Token
-#
-#   x <- seq_along(word_v)
-#
-#   chunks_l <- split(word_v, ceiling(x / chunk_size))
-#   if (length(chunks_l[[length(chunks_l)]]) <= chunk_size / 2) {
-#     chunks_l[[length(chunks_l) - 1]] <- c(chunks_l[[length(chunks_l) - 1]],
-#                                           chunks_l[[length(chunks_l)]])
-#     chunks_l[[length(chunks_l)]] <- NULL
-#   }
-#   chunk_strings_l <- lapply(chunks_l, paste, collapse = " ")
-#   chunks_df <- do.call(rbind, chunk_strings_l)
-#   textname_v <- gsub("\\..*", "", texts$title[i])
-#   chunk_ids_v <- 1:nrow(chunks_df)
-#   chunk_names_v <- paste(textname_v, chunk_ids_v, sep = "_")
-#   file_df <- data.frame(id = chunk_names_v,
-#                         text = chunks_df,
-#                         stringsAsFactors = FALSE)
-#
-#   documents_df <- rbind(documents_df, file_df) adding to the dataframe
-#   cat("Done with", texts$title[i], "\r")#status text
-# }
+  cat("chunk", i,"out of",length(text_tibble$titleChunked), "\r")#status text
+}
+toc()#6815.61 sec elapsed
+tic()
+openNLP_texts$text <- openNLP_texts$text %>% lemmatize_strings()
 toc()
-#3088.11 sec elapsed
+
+openNLP_texts %>%  write_csv("openNLP_texts.csv")
+
+openNLP_texts <-  read_csv("openNLP_texts.csv")
 
 
-##removing the chunk tags and saving data
-# documents_df <-
-#   documents_df %>% mutate(title = id %>% str_replace_all("_\\d+", ""))
-# 
-# documents_df %>% write_csv("cleaned_texts.csv")
+openNLP_texts %>% glimpse()
+```
+
+```{r}
 
 
 #running LDA
 
-lemmatized_pos_texts <- read_csv("cleaned_texts.csv")
 
-lemmatized_pos_LDA <- lemmatized_pos_texts %>% custom_LDA_func(20)
+openNLP_LDA <- openNLP_texts %>% custom_LDA_func(20)
 
-lemmatized_pos_LDA$plot()
+openNLP_LDA %>% saveRDS("openNLP_LDA.rds")
 
+openNLP_LDA <- read_rds("openNLP_LDA.rds")
+
+openNLP_LDA$plot()
+
+
+save.image("workspace.RData")
+load("workspace.RData")
 
 #session info
 sessioninfo::session_info()
-
-
 ```
