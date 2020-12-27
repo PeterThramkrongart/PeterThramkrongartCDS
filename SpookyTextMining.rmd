@@ -27,10 +27,14 @@ pacman::p_load(
   udpipe
 )
 
+
+#load workspace from ealier...
 load("workspace.RData")
 
 #install.packages("openNLPmodels.en", dependencies=TRUE, repos = "http://datacube.wu.ac.at/")
 
+
+#this installs spacy
 #spacy_install()
 ```
 
@@ -62,12 +66,14 @@ texts <- texts %>% group_by(title) %>% mutate(text = glue::glue_collapse(text, "
 texts$text <-
   texts$text %>% str_replace_all("[^[:alnum:][:space:]'\\.,]", "")
 
-texts %>% write_csv("data/texts.csv")
+
+#save data
+#texts %>% write_csv("data/texts.csv")
 
 texts <- read_csv("data/texts.csv")
 texts %>% glimpse()
 
-
+#chunking data to smaller parts
 
 tic()
 chunks <-
@@ -80,6 +86,8 @@ chunks <-
   )
 toc()#32.97 sec elapsed
 
+
+#turning list into tibble
 text_tibble <-
   tibble(
     "title" = names(chunks) %>% str_replace_all("-\\d+", ""),
@@ -88,6 +96,10 @@ text_tibble <-
   )
 
 
+text_tibble %>% glimpse()
+
+# saving the data
+#text_tibble %>% write_rds("data/text_tibble.rds")
 ```
 
 
@@ -128,33 +140,40 @@ custom_LDA_func <- function(df, n) {
 
 ```{r}
 
+
+#fitting LDA on raw books
 raw_LDA <- custom_LDA_func(texts, 6)
 
-raw_LDA %>% write_rds("data/raw_LDA.rds")
+#raw_LDA %>% write_rds("data/raw_LDA.rds")#saving model
 
 raw_LDA <- read_rds("data/raw_LDA.rds")
 
+
+#this part is not visible in the knitted document. It starts a server that hosts the visualization.
 raw_LDA$plot()
 
-
+#fitting LDA on smaller chunks
 chunked_LDA <- custom_LDA_func(text_tibble, 20)
 
-chunked_LDA %>% write_rds("data/chunked_LDA.rds")
+#chunked_LDA %>% write_rds("data/chunked_LDA.rds")#saving model
 
 chunked_LDA <- read_rds("chunked_LDA.rds")
 
 chunked_LDA$plot()
 
 
+#lemmatizing strings... 
 
-tic()
-lemmatized_tibble <- text_tibble %>% mutate(text = text %>% lemmatize_strings())
-toc()#897.18 sec elapsed
+# tic()
+# lemmatized_tibble <- text_tibble %>% mutate(text = text %>% lemmatize_strings())
+# toc()#897.18 sec elapsed
+# 
+# lemmatized_tibble$text <- lemmatized_tibble$text %>% tolower()
+# 
+# lemmatized_tibble %>% write_csv("data/lemmatized_tibble.csv")
 
-lemmatized_tibble$text <- lemmatized_tibble$text %>% tolower()
 
-lemmatized_tibble %>% write_csv("data/lemmatized_tibble.csv")
-
+#loading the lemmatized data 
 lemmatized_tibble <- read_csv("data/lemmatized_tibble.csv")
 
 lemmatized_tibble %>% glimpse()
@@ -162,65 +181,73 @@ lemmatized_tibble %>% glimpse()
 #fitting model on lemmatized texts
 lemmatized_LDA <- custom_LDA_func(lemmatized_tibble, 6)
 
-lemmatized_LDA %>% write_rds("data/lemmatized_LDA.rds")
+#lemmatized_LDA %>% write_rds("data/lemmatized_LDA.rds")#saving model
 
 lemmatized_LDA <- read_rds("data/lemmatized_LDA.rds")
-#this part is not visible in the knitted document. It starts a server that hosts the visualization.
+
 lemmatized_LDA$plot()
 
 ```
 
 
 ```{r}
-spacy_initialize()
+#spacy_initialize()
 
-spacy_initialize(condaenv = "C:/Users/thram_000/anaconda3/envs/spacy_condaenv",save_profile = TRUE)
-
-spacey_test<- spacy_parse(unlist(chunks[1:2]))
-
-spacey_test %>% glimpse()
+# spacy_initialize(condaenv = "C:/Users/thram_000/anaconda3/envs/spacy_condaenv",save_profile = TRUE)
 
 
-tic()
+#you need to have spacy and spacyr properly installed for this step
+spacey_test<- spacy_parse(unlist(chunks[1:2]))#
 
-spacy_lemmas <- spacy_parse(unlist(chunks))
-
-toc()#1778.81 sec elapsed
-
-
-spacy_lemmas %>% write_csv("data/spacy_lemmas.csv")
+spacey_test %>% glimpse()#this it what it looks like
 
 
-spacy_lemmas <- read_csv("data/spacy_lemmas.csv")
 
-tic()
-spacy_texts <- spacy_lemmas %>% filter(pos == "ADJ" |
-                                    pos == "ADV" |
-                                    pos == "NOUN" |
-                                    pos == "VERB") %>%
-  mutate(title = doc_id %>% str_replace_all("-\\d+", ""),
-         titleChunked = doc_id) %>% select(c("lemma", "title", "titleChunked")) %>%
-  group_by(titleChunked) %>%
-  mutate(lemma = glue::glue_collapse(lemma, " ")) %>%
-  unique() %>%
-  rename(text = lemma)
-toc()#775.12 sec elapsed
+#doing it on all the data. Note how long it takes
+# tic()
+# 
+# spacy_lemmas <- spacy_parse(unlist(chunks))
+# 
+# toc()#1778.81 sec elapsed
+# 
+# 
+# spacy_lemmas %>% write_csv("data/spacy_lemmas.csv")
+# 
+
+spacy_lemmas <- read_csv("data/spacy_lemmas.csv")#loading the lemmas. This file is too big for github
+
+#filtering the lemmas and collapsing the texts
+# tic()
+# spacy_texts <- spacy_lemmas %>% filter(pos == "ADJ" |
+#                                     pos == "ADV" |
+#                                     pos == "NOUN" |
+#                                     pos == "VERB") %>%
+#   mutate(title = doc_id %>% str_replace_all("-\\d+", ""),
+#          titleChunked = doc_id) %>% select(c("lemma", "title", "titleChunked")) %>%
+#   group_by(titleChunked) %>%
+#   mutate(lemma = glue::glue_collapse(lemma, " ")) %>%
+#   unique() %>%
+#   rename(text = lemma)
+# toc()#775.12 sec elapsed
 
 
-spacy_texts %>% write_csv("data/spacy_texts.csv")
+#spacy_texts %>% write_csv("data/spacy_texts.csv")
 
 spacy_texts <- read.csv("data/spacy_texts.csv")
 
 spacy_texts %>% glimpse()
 
 
+#fitting model
+# spacy_LDA <- spacy_texts %>% custom_LDA_func(20)
+# 
+# spacy_LDA %>% saveRDS("data/spacy_LDA.rds")
 
-spacy_LDA <- spacy_texts %>% custom_LDA_func(20)
 
-spacy_LDA %>% saveRDS("data/spacy_LDA.rds")
-
+#loading model
 spacy_LDA <- read_rds("data/spacy_LDA.rds")
 
+#wow it can fit 20 topic now!
 spacy_LDA$plot()
 
 
@@ -229,63 +256,65 @@ spacy_LDA$plot()
 
 ```{r}
 
-#difining pipeline for POS tagging
+#defining pipeline for POS tagging
 
 sent_token_annotator <- Maxent_Sent_Token_Annotator()
 word_token_annotator <- Maxent_Word_Token_Annotator()
 pos_tag_annotator <- Maxent_POS_Tag_Annotator()
 
 
-tic()
-openNLP_texts <- NULL
+#doing the same thing with openNLP and textstem. It takes almost 2 hours to run
 
-for (i in seq_along(text_tibble$titleChunked)) {
-
-  para_text <- text_tibble$text[i] #grapping text
-  
-  text_s <- as.String(para_text) # tunring into the right string format
-  
-  #start annotating string
-  annotated_string <- annotate(text_s,
-                               list(
-                                 sent_token_annotator,
-                                 word_token_annotator,
-                                 pos_tag_annotator
-                               ))
-  
-  
-  word_pos <- subset(annotated_string, type == "word") #grapping position of words
-  
-  tags_v <- sapply(word_pos$features, `[[`, "POS") #grapping pos tags
-  
-  words_v <- text_s[word_pos] #grapping pos tags
-  
-  word_pos_df <- data.frame(Token = words_v,
-                            POS = tags_v,
-                            stringsAsFactors = FALSE) #assembling in dataframe
-  
-  filtered_df <-
-    #we are only interested in nouns verbs and adjectives
-    filter(word_pos_df,
-           POS == "NN"| POS == "NNS" | str_detect(POS, "VB") | str_detect(POS, "JJ")| str_detect(POS, "RB")) %>%
-    select(Token) %>%
-    mutate(Token = tolower(Token))
-  
-  text_v = paste(filtered_df$Token, collapse = " ")
-    
-  df = tibble(title = text_tibble$title[i],
-    titleChunked = text_tibble$titleChunked[i],
-              text = text_v)
-    openNLP_texts <- rbind(openNLP_texts, df) #adding to the dataframe
-
-  cat("chunk", i,"out of",length(text_tibble$titleChunked), "\r")#status text
-}
-toc()#6815.61 sec elapsed
-tic()
-openNLP_texts$text <- openNLP_texts$text %>% lemmatize_strings()
-toc()
-
-openNLP_texts %>%  write_csv("data/openNLP_texts.csv")
+# tic()
+# openNLP_texts <- NULL
+# 
+# for (i in seq_along(text_tibble$titleChunked)) {
+# 
+#   para_text <- text_tibble$text[i] #grapping text
+#   
+#   text_s <- as.String(para_text) # turning into the right string format
+#   
+#   #start annotating string
+#   annotated_string <- annotate(text_s,
+#                                list(
+#                                  sent_token_annotator,
+#                                  word_token_annotator,
+#                                  pos_tag_annotator
+#                                ))
+#   
+#   
+#   word_pos <- subset(annotated_string, type == "word") #grapping position of words
+#   
+#   tags_v <- sapply(word_pos$features, `[[`, "POS") #grapping pos tags
+#   
+#   words_v <- text_s[word_pos] #grapping pos tags
+#   
+#   word_pos_df <- data.frame(Token = words_v,
+#                             POS = tags_v,
+#                             stringsAsFactors = FALSE) #assembling in dataframe
+#   
+#   filtered_df <-
+#     #we are only interested in nouns verbs and adjectives
+#     filter(word_pos_df,
+#            POS == "NN"| POS == "NNS" | str_detect(POS, "VB") | str_detect(POS, "JJ")| str_detect(POS, "RB")) %>%
+#     select(Token) %>%
+#     mutate(Token = tolower(Token))
+#   
+#   text_v = paste(filtered_df$Token, collapse = " ")
+#     
+#   df = tibble(title = text_tibble$title[i],
+#     titleChunked = text_tibble$titleChunked[i],
+#               text = text_v)
+#     openNLP_texts <- rbind(openNLP_texts, df) #adding to the dataframe
+# 
+#   cat("chunk", i,"out of",length(text_tibble$titleChunked), "\r")#status text
+# }
+# toc()#6815.61 sec elapsed
+# tic()
+# openNLP_texts$text <- openNLP_texts$text %>% lemmatize_strings()
+# toc()
+# 
+# openNLP_texts %>%  write_csv("data/openNLP_texts.csv")
 
 openNLP_texts <-  read_csv("data/openNLP_texts.csv")
 
@@ -299,17 +328,16 @@ openNLP_texts %>% glimpse()
 #running LDA
 
 
-openNLP_LDA <- openNLP_texts %>% custom_LDA_func(20)
-
-openNLP_LDA %>% saveRDS("data/openNLP_LDA.rds")
+# openNLP_LDA <- openNLP_texts %>% custom_LDA_func(20)
+# 
+# openNLP_LDA %>% saveRDS("data/openNLP_LDA.rds")
 
 openNLP_LDA <- read_rds("data/openNLP_LDA.rds")
 
 openNLP_LDA$plot()
 
-
-save.image("workspace.RData")
-load("workspace.RData")
+# save.image("workspace.RData")
+# load("workspace.RData")
 
 #session info
 sessioninfo::session_info()
