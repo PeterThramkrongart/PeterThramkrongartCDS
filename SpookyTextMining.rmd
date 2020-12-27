@@ -27,7 +27,7 @@ pacman::p_load(
   udpipe
 )
 
-
+load("workspace.RData")
 
 #install.packages("openNLPmodels.en", dependencies=TRUE, repos = "http://datacube.wu.ac.at/")
 
@@ -57,17 +57,17 @@ texts <- gutenberg_download(IDs$gutenberg_id, meta_fields = c("title", "author")
 texts <- texts %>% group_by(title) %>% mutate(text = glue::glue_collapse(text, " ")) %>% unique()
 
 
-texts %>% write_csv("texts.csv")
-
-texts <- read_csv("texts.csv")
-texts %>% glimpse()
-
-
-
 #removing unnecessary characters and 
 
 texts$text <-
   texts$text %>% str_replace_all("[^[:alnum:][:space:]'\\.,]", "")
+
+texts %>% write_csv("data/texts.csv")
+
+texts <- read_csv("data/texts.csv")
+texts %>% glimpse()
+
+
 
 tic()
 chunks <-
@@ -130,18 +130,18 @@ custom_LDA_func <- function(df, n) {
 
 raw_LDA <- custom_LDA_func(texts, 6)
 
-raw_LDA %>% write_rds("rawLDA.rds")
+raw_LDA %>% write_rds("data/raw_LDA.rds")
 
-raw_LDA <- read_rds("rawLDA.rds")
+raw_LDA <- read_rds("data/raw_LDA.rds")
 
 raw_LDA$plot()
 
 
 chunked_LDA <- custom_LDA_func(text_tibble, 20)
 
-chunked_LDA %>% write_rds("chunkedLDA.rds")
+chunked_LDA %>% write_rds("data/chunked_LDA.rds")
 
-chunked_LDA <- read_rds("chunkedLDA.rds")
+chunked_LDA <- read_rds("chunked_LDA.rds")
 
 chunked_LDA$plot()
 
@@ -153,18 +153,18 @@ toc()#897.18 sec elapsed
 
 lemmatized_tibble$text <- lemmatized_tibble$text %>% tolower()
 
-lemmatized_tibble %>% write_csv("lemmatized_tibble.csv")
+lemmatized_tibble %>% write_csv("data/lemmatized_tibble.csv")
 
-lemmatized_tibble <- read_csv("lemmatized_tibble.csv")
+lemmatized_tibble <- read_csv("data/lemmatized_tibble.csv")
 
 lemmatized_tibble %>% glimpse()
 
 #fitting model on lemmatized texts
 lemmatized_LDA <- custom_LDA_func(lemmatized_tibble, 6)
 
-lemmatized_LDA %>% write_rds("lemmatizedLDA.rds")
+lemmatized_LDA %>% write_rds("data/lemmatized_LDA.rds")
 
-lemmatized_LDA <- read_rds("lemmatizedLDA.rds")
+lemmatized_LDA <- read_rds("data/lemmatized_LDA.rds")
 #this part is not visible in the knitted document. It starts a server that hosts the visualization.
 lemmatized_LDA$plot()
 
@@ -188,10 +188,10 @@ spacy_lemmas <- spacy_parse(unlist(chunks))
 toc()#1778.81 sec elapsed
 
 
-spacy_lemmas %>% write_csv("spacy_lemmas.csv")
+spacy_lemmas %>% write_csv("data/spacy_lemmas.csv")
 
 
-spacy_lemmas <- read_csv("spacy_lemmas.csv")
+spacy_lemmas <- read_csv("data/spacy_lemmas.csv")
 
 tic()
 spacy_texts <- spacy_lemmas %>% filter(pos == "ADJ" |
@@ -207,9 +207,9 @@ spacy_texts <- spacy_lemmas %>% filter(pos == "ADJ" |
 toc()#775.12 sec elapsed
 
 
-spacy_texts %>% write_csv("spacy_texts.csv")
+spacy_texts %>% write_csv("data/spacy_texts.csv")
 
-spacy_texts <- read.csv("spacy_texts.csv")
+spacy_texts <- read.csv("data/spacy_texts.csv")
 
 spacy_texts %>% glimpse()
 
@@ -217,7 +217,9 @@ spacy_texts %>% glimpse()
 
 spacy_LDA <- spacy_texts %>% custom_LDA_func(20)
 
-spacy_LDA %>% saveRDS("spacyLDA.rds")
+spacy_LDA %>% saveRDS("data/spacy_LDA.rds")
+
+spacy_LDA <- read_rds("data/spacy_LDA.rds")
 
 spacy_LDA$plot()
 
@@ -283,9 +285,9 @@ tic()
 openNLP_texts$text <- openNLP_texts$text %>% lemmatize_strings()
 toc()
 
-openNLP_texts %>%  write_csv("openNLP_texts.csv")
+openNLP_texts %>%  write_csv("data/openNLP_texts.csv")
 
-openNLP_texts <-  read_csv("openNLP_texts.csv")
+openNLP_texts <-  read_csv("data/openNLP_texts.csv")
 
 
 openNLP_texts %>% glimpse()
@@ -299,9 +301,9 @@ openNLP_texts %>% glimpse()
 
 openNLP_LDA <- openNLP_texts %>% custom_LDA_func(20)
 
-openNLP_LDA %>% saveRDS("openNLP_LDA.rds")
+openNLP_LDA %>% saveRDS("data/openNLP_LDA.rds")
 
-openNLP_LDA <- read_rds("openNLP_LDA.rds")
+openNLP_LDA <- read_rds("data/openNLP_LDA.rds")
 
 openNLP_LDA$plot()
 
