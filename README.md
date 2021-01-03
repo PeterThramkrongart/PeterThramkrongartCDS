@@ -1,9 +1,12 @@
 # PeterThramkrongartCDS
 This project was made Peter Thramkrongart for the Introduction to Cultural Data Science 2020 course at Aarhus University.
 PeterThramkrongartCDS_final_project.docx file contains a full report on the project including code.
+The SpookyTextMining.rmd file contains all code for this project and the typeset code for the .docx document.
+This is the document you need to open, if you want to run the code and explore the topic models.
 The project is about performing advanced text preprocessing in R using SpaCy and openNLP.
 The data are horror texts gathered from Project Gutenberg using the GutenbergR package. 
 The /data/ folder contains LDA models saved in R's .rds format, and csv's from all major coding steps.
+
 The csv's has the following format:
 
 title = title of the text
